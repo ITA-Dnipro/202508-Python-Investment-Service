@@ -21,7 +21,7 @@ def upgrade() -> None:
         sa.Column("investor_id", sa.Integer, nullable=False),
         sa.Column("amount", sa.Numeric(12, 2), nullable=False),
         sa.Column("message", sa.Text, nullable=True),
-        sa.Column("status", sa.String(20), nullable=False, server_default="Pending"),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("NOW()")),
         sa.CheckConstraint("amount > 0", name="ck_amount_positive"),

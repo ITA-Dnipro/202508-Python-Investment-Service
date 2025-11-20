@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 import httpx, asyncio
@@ -12,7 +12,7 @@ from app.notify import notify_startup_new_request, notify_investor_confirmation
 
 router = APIRouter(prefix="/investments/requests", tags=["investment-requests"])
 
-OPEN_STATUS = {"open"}
+OPEN_STATUSES = {"open", "opened", "active"}
 bearer = HTTPBearer(auto_error=True)
 
 async def _check_project_open(project_id: int, creds: HTTPAuthorizationCredentials) -> bool:
@@ -35,7 +35,8 @@ async def _check_project_open(project_id: int, creds: HTTPAuthorizationCredentia
         raw_status = data.get("status") or (data.get("project") or {}).get("status")
         if raw_status is None:
             raise HTTPException(status_code=502, detail="Monolith response has no 'status' field.")
-        return str(raw_status).strip().lower() in OPEN_STATUS
+        state = str(raw_status).strip().lower()
+        return state in OPEN_STATUSES
 
     except HTTPException:
         raise
@@ -65,6 +66,7 @@ async def _get_investor_profile_id(token_header: str) -> int | None:
 @router.post("/", response_model=InvestmentRequestOut, status_code=status.HTTP_201_CREATED)
 async def create_request(
     payload: InvestmentRequestCreate,
+    background: BackgroundTasks,
     investor_id: int = Depends(get_current_investor_id),
     creds: HTTPAuthorizationCredentials = Depends(bearer),
     db: Session = Depends(get_db),
@@ -78,29 +80,31 @@ async def create_request(
         investor_id=investor_id,
         amount=payload.amount,
         message=payload.message,
-        status="Pending",
+        status="pending",
     )
     db.add(obj)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(obj)
 
     token_header = f"{creds.scheme} {creds.credentials}"
 
-    asyncio.create_task(
-        notify_startup_new_request(
-            token=token_header,
-            project_id=obj.project_id,
-            amount=float(obj.amount),
-        )
+    background.add_task(
+        notify_startup_new_request,
+        token=token_header,
+        project_id=obj.project_id,
+        amount=float(obj.amount),
     )
 
     investor_profile_id = await _get_investor_profile_id(token_header)
-    asyncio.create_task(
-        notify_investor_confirmation(
-            token=token_header,
-            message=f"Your investment request for project #{obj.project_id} is created with amount {float(obj.amount)}",
-            investor_profile_id=investor_profile_id
-        )
+    background.add_task(
+        notify_investor_confirmation,
+        token=token_header,
+        message=f"Your investment request for project #{obj.project_id} is created with amount {float(obj.amount)}",
+        investor_profile_id=investor_profile_id
     )
 
     return obj

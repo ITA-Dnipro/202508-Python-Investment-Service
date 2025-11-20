@@ -2,9 +2,12 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
+
 from sqlalchemy import String, Text, DateTime, Numeric, BigInteger, func
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.db import Base
+
 
 class InvestmentRequest(Base):
     __tablename__ = "investment_requests"
